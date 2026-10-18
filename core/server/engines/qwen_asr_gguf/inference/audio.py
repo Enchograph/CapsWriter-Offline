@@ -113,7 +113,8 @@ def load_audio_ffmpeg(audio_path, sample_rate=24000, start_second=None, duration
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        bufsize=0
+        bufsize=0,
+        creationflags=0x08000000 if os.name == 'nt' else 0,
     )
 
     raw_bytes, stderr = process.communicate()
