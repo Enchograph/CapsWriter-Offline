@@ -17,6 +17,7 @@ import numpy as np
 import sounddevice as sd
 
 from core.client.state import console
+from core.client.ui.hint_window import HintWindow
 from . import logger
 
 if TYPE_CHECKING:
@@ -75,6 +76,22 @@ class AudioStreamManager:
         # 只在录音状态时处理数据
         if not self.state.recording:
             return
+
+        # 实时频谱（用于录音状态悬浮提示窗）
+        try:
+            mono = indata.mean(axis=1) if indata.ndim > 1 else indata
+            n = mono.shape[0]
+            spec = np.abs(np.fft.rfft(mono * np.hanning(n))) / max(n, 1)
+            freqs = np.fft.rfftfreq(n, 1.0 / self.SAMPLE_RATE)
+            edges = np.geomspace(80.0, 10000.0, 25)
+            levels = []
+            for i in range(24):
+                seg = spec[(freqs >= edges[i]) & (freqs < edges[i + 1])]
+                rms = float(np.sqrt(np.mean(np.square(seg)))) if seg.size else 0.0
+                levels.append(20.0 * float(np.log10(rms + 1e-10)))
+            HintWindow.update_spectrum(levels)
+        except Exception:
+            pass
 
         import asyncio
 
