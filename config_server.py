@@ -14,7 +14,7 @@ class ServerConfig:
     port = '6016'
 
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
-    model_type = 'qwen_asr'
+    model_type = 'sensevoice'
 
     format_num = True       # 输出时是否将中文数字转为阿拉伯数字
     format_spell = True     # 输出时是否调整中英之间的空格
@@ -23,7 +23,7 @@ class ServerConfig:
     hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
 
     # 日志配置
-    log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    log_level = 'INFO'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
     aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
