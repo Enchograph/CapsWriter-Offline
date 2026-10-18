@@ -17,7 +17,7 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'caps_lock',     # 监听大写锁定键
+            'key': 'tab',     # 监听 Tab 键
             'type': 'keyboard',     # 是键盘快捷键
             'suppress': True,      # 阻塞按键（短按会补发）
             'hold_mode': True,      # 长按模式
@@ -128,7 +128,7 @@ r"""
   鼠标键：x1, x2
 
 示例配置：
-  {'key': 'caps_lock', 'type': 'keyboard', 'suppress': False, 'hold_mode': True, 'enabled': True}, 
+  {'key': 'tab', 'type': 'keyboard', 'suppress': False, 'hold_mode': True, 'enabled': True}, 
   {'key': 'f12', 'type': 'keyboard', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
   {'key': 'x2', 'type': 'mouse', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
 """
