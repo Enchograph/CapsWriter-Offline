@@ -85,9 +85,10 @@ class ShortcutTask:
             self.app.loop
         )
 
-        # 更新录音状态
+        # 更新录音状态；音频流按需打开，首块数据到达后切入「录音中」
         self.state.start_recording(self.recording_start_time)
-        HintWindow.show_recording()
+        HintWindow.show_preparing()
+        self.app.stream.open()
 
         # 打印动画：正在录音
         self._status.start()
@@ -105,6 +106,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self.state.stop_recording()
+        self.app.stream.close()
         HintWindow.hide()
         self._status.stop()
 
@@ -117,6 +119,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self.state.stop_recording()
+        self.app.stream.close()
         HintWindow.show_processing()
         self._status.stop()
 

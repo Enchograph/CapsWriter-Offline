@@ -3,8 +3,9 @@
 录音状态悬浮提示窗
 
 屏幕底部固定居中的音频可视化：
+- 准备中：灰色基线上的黑点左右滑动（音频设备正在打开）
 - 录音中：白色胶囊内单色对称波形，实时显示麦克风频谱
-- 识别中：三颗灰色圆点依次点亮
+- 转换中：三颗灰色圆点依次点亮
 
 tkinter 界面运行在独立守护线程中，音频回调通过 update_spectrum 推送频谱数据。
 """
@@ -12,6 +13,7 @@ tkinter 界面运行在独立守护线程中，音频回调通过 update_spectru
 from __future__ import annotations
 
 import ctypes
+import math
 import queue
 import threading
 import time
@@ -31,6 +33,7 @@ _BORDER = '#e5e5ea'
 _BAR_COLOR = '#1c1c1e'
 _DOT_ON = '#1c1c1e'
 _DOT_OFF = '#d1d1d6'
+_BASELINE_COLOR = '#d1d1d6'
 
 _GWL_EXSTYLE = -20
 _WS_EX_NOACTIVATE = 0x08000000
@@ -88,6 +91,9 @@ class _HintUIThread(threading.Thread):
                                fill=_DOT_OFF, outline='')
             for x in (_W / 2 - 12, _W / 2, _W / 2 + 12)
         ]
+        self._baseline = canvas.create_line(
+            26, dot_y, _W - 26, dot_y, fill=_BASELINE_COLOR, width=2, capstyle='round')
+        self._scan_dot = canvas.create_oval(0, 0, 0, 0, fill=_BAR_COLOR, outline='')
         self._place_bottom_center()
         root.withdraw()
 
@@ -117,7 +123,15 @@ class _HintUIThread(threading.Thread):
             pass
 
         now = time.monotonic()
-        if self._visible and self._state == 'rec':
+        if self._visible and self._state == 'prep':
+            if now - self._anim_at >= 0.03:
+                self._anim_at = now
+                half = (_W - 52) / 2 - 3
+                x = _W / 2 + math.sin(now * 2.8) * half
+                self._canvas.coords(self._scan_dot, x - 3, _H / 2 - 3, x + 3, _H / 2 + 3)
+            if now - self._shown_at > 3:
+                self._apply('hide')
+        elif self._visible and self._state == 'rec':
             if now - self._anim_at >= 0.03:
                 self._anim_at = now
                 dbs = self.latest_levels
@@ -151,7 +165,9 @@ class _HintUIThread(threading.Thread):
         self._root.after(25, self._poll)
 
     def _apply(self, command: str) -> None:
-        if command == 'rec':
+        if command == 'prep':
+            self._set_state('prep')
+        elif command == 'rec':
             self._set_state('rec')
         elif command == 'proc':
             self._set_state('proc')
@@ -166,6 +182,9 @@ class _HintUIThread(threading.Thread):
         self._anim_at = 0.0
         self._proc_index = 0
         recording = state == 'rec'
+        preparing = state == 'prep'
+        processing = state == 'proc'
+
         if recording:
             self._floors = [-80.0] * _BARS
             self._peaks = [-40.0] * _BARS
@@ -176,8 +195,10 @@ class _HintUIThread(threading.Thread):
         for i, item in enumerate(self._proc_dots):
             self._canvas.itemconfigure(
                 item,
-                state='hidden' if recording else 'normal',
+                state='normal' if processing else 'hidden',
                 fill=_DOT_ON if i == 0 else _DOT_OFF)
+        self._canvas.itemconfigure(self._baseline, state='normal' if preparing else 'hidden')
+        self._canvas.itemconfigure(self._scan_dot, state='normal' if preparing else 'hidden')
 
         if not self._visible:
             self._visible = True
@@ -217,6 +238,12 @@ class HintWindow:
                 cls._thread = _HintUIThread()
                 cls._thread.start()
             return cls._thread
+
+    @classmethod
+    def show_preparing(cls) -> None:
+        t = cls._ensure_started()
+        if t:
+            t.commands.put('prep')
 
     @classmethod
     def show_recording(cls) -> None:

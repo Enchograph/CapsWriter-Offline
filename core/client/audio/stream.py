@@ -54,7 +54,9 @@ class AudioStreamManager:
         """
         self.app = app
         self._channels = 1
-        self._running = False  # 标志是否应该运行
+        self._running = False  # 音频流是否处于打开状态
+        self._device_probed = False
+        self._first_chunk_notified = True  # 本次录音是否已通知首块数据
 
     @property
     def state(self) -> ClientState:
@@ -76,6 +78,11 @@ class AudioStreamManager:
         # 只在录音状态时处理数据
         if not self.state.recording:
             return
+
+        # 首块数据到达：设备已就绪，从「准备中」切入「录音中」
+        if not self._first_chunk_notified:
+            self._first_chunk_notified = True
+            HintWindow.show_recording()
 
         # 实时频谱（用于录音状态悬浮提示窗）
         try:
@@ -118,13 +125,13 @@ class AudioStreamManager:
 
     def start(self) -> Optional[sd.InputStream]:
         """
-        启动音频流
+        探测音频设备；音频流由 open() 在按键时按需打开
 
         Returns:
-            创建的音频输入流，如果失败返回 None
+            始终返回 None（兼容旧调用）
         """
-        if self._running:
-            logger.debug("音频流已在运行，跳过启动")
+        if self._device_probed:
+            logger.debug("音频设备已探测，跳过")
             return self.state.stream
 
         # 检测音频设备
@@ -144,7 +151,15 @@ class AudioStreamManager:
             input('按回车键退出')
             sys.exit(1)
 
-        # 创建音频流
+        self._device_probed = True
+        return None
+
+    def open(self) -> Optional[sd.InputStream]:
+        """按需打开音频流（按住录音时调用）"""
+        if self._running:
+            return self.state.stream
+
+        self._first_chunk_notified = False
         try:
             stream = sd.InputStream(
                 samplerate=self.SAMPLE_RATE,
@@ -155,18 +170,15 @@ class AudioStreamManager:
                 callback=self._audio_callback,
                 finished_callback=self._on_stream_finished,
             )
+            self.state.stream = stream
             stream.start()
 
-            self.state.stream = stream
             self._running = True
-            logger.debug(
-                f"音频流已启动: 采样率={self.SAMPLE_RATE}, "
-                f"块大小={int(self.BLOCK_DURATION * self.SAMPLE_RATE)}"
-            )
+            logger.debug("音频流已按需打开")
             return stream
 
         except sd.PortAudioError as e:
-            logger.error(f"创建音频流失败: {e}", exc_info=True)
+            logger.error(f"打开音频流失败: {e}", exc_info=True)
             if '-9999' in str(e):
                 console.print("""
 [bold red]检测到麦克风被占用或权限异常（错误码 -9999）[/bold red]
@@ -178,23 +190,27 @@ class AudioStreamManager:
 """)
             return None
         except Exception as e:
-            logger.error(f"创建音频流失败: {e}", exc_info=True)
+            logger.error(f"打开音频流失败: {e}", exc_info=True)
             return None
 
-    def stop(self) -> None:
-        """停止音频流"""
+    def close(self) -> None:
+        """关闭音频流（松开按键时调用）"""
         if not self._running:
             return
 
-        self._running = False  # 标记为停止
+        self._running = False
         if self.state.stream is not None:
             try:
                 self.state.stream.close()
-                logger.debug("音频流已停止")
+                logger.debug("音频流已关闭")
             except Exception as e:
-                logger.debug(f"停止音频流时发生错误: {e}")
+                logger.debug(f"关闭音频流时发生错误: {e}")
             finally:
                 self.state.stream = None
+
+    def stop(self) -> None:
+        """停止音频流（客户端退出时调用）"""
+        self.close()
 
     def reopen(self) -> Optional[sd.InputStream]:
         """
@@ -204,9 +220,10 @@ class AudioStreamManager:
             新创建的音频输入流
         """
         logger.info("正在重启音频流...")
+        was_open = self._running
 
         # 停止旧流
-        self.stop()
+        self.close()
 
         # 重载 PortAudio，更新设备列表
         try:
@@ -220,5 +237,9 @@ class AudioStreamManager:
         # 等待设备稳定
         time.sleep(0.1)
 
-        # 启动新流
-        return self.start()
+        # 重新探测设备；若原本正在录音则恢复
+        self._device_probed = False
+        self.start()
+        if was_open:
+            return self.open()
+        return None
