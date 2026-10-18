@@ -9,6 +9,7 @@
 4. hold_mode 和 click_mode 支持
 """
 from __future__ import annotations
+import ctypes
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Dict, List, Optional
@@ -64,6 +65,9 @@ class ShortcutManager:
         # 按键恢复状态追踪
         self._restoring_keys = set()
 
+        # 因组合键而忽略本次按下的按键（keyup 时同样放行）
+        self._combo_ignored = set()
+
         # 事件处理器
         self._event_handler = ShortcutEventHandler(self.tasks, self._pool, self._emulator)
 
@@ -111,6 +115,22 @@ class ShortcutManager:
                 return True
 
             task = self.tasks[key_name]
+
+            # 记录按键来源，便于排查误触发（注入事件 vs 物理按键）
+            if msg in KEY_DOWN_MESSAGES:
+                flags = int(getattr(data, 'flags', 0))
+                logger.info(
+                    f"[{key_name}] 按键按下: flags=0x{flags:02x} "
+                    f"注入={bool(flags & 0x12)} scan={getattr(data, 'scanCode', -1)}"
+                )
+
+            # 带修饰键的组合（Alt+Tab、Ctrl+Tab、Win+Tab 等）不触发录音，完整交还系统
+            if msg in KEY_DOWN_MESSAGES and self._modifier_pressed():
+                self._combo_ignored.add(key_name)
+                return True
+            if msg in KEY_UP_MESSAGES and key_name in self._combo_ignored:
+                self._combo_ignored.discard(key_name)
+                return True
 
             # 处理按键事件
             if msg in KEY_DOWN_MESSAGES:
@@ -219,6 +239,20 @@ class ShortcutManager:
     def clear_restoring_flag(self, key: str) -> None:
         """清除恢复标志"""
         self._restoring_keys.discard(key)
+
+    # ========== 修饰键检测 ==========
+
+    @staticmethod
+    def _modifier_pressed() -> bool:
+        """检测 Alt/Ctrl/Win 是否处于按下状态"""
+        try:
+            user32 = ctypes.windll.user32
+            return any(
+                user32.GetAsyncKeyState(vk) & 0x8000
+                for vk in (0x12, 0x11, 0x5B, 0x5C)  # Alt, Ctrl, LWin, RWin
+            )
+        except Exception:
+            return False
 
     # ========== 防自捕获检查 ==========
 
