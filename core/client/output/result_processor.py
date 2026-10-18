@@ -24,6 +24,7 @@ from core.client.udp.udp_broadcaster import broadcast_output_udp
 from core.tools.zhconv import convert as zhconv_convert
 from core.client.audio.file_manager import AudioFileManager
 from core.client.llm.llm_write_md import write_llm_md
+from core.client.ui.hint_window import HintWindow
 
 if TYPE_CHECKING:
     from core.client.state import ClientState
@@ -308,6 +309,7 @@ class ResultProcessor:
         # 检测修饰键状态（调试用）
         self._log_modifier_key_state()
 
+        HintWindow.hide()
         console.line()
     
     def _cleanup(self) -> None:
