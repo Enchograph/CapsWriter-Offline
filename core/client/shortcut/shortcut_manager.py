@@ -68,6 +68,9 @@ class ShortcutManager:
         # 因组合键而忽略本次按下的按键（keyup 时同样放行）
         self._combo_ignored = set()
 
+        # 组合键取消后屏蔽本次触发键，直到松开
+        self._combo_blocked = None
+
         # 事件处理器
         self._event_handler = ShortcutEventHandler(self.tasks, self._pool, self._emulator)
 
@@ -102,7 +105,13 @@ class ShortcutManager:
             if msg not in KEYBOARD_MESSAGES:
                 return True
 
-            key_name = KeyMapper.vk_to_name(data.vkCode)
+            # Fn 键以 vk=0xFF / scan=0x78 上报；左右 Alt（0xA4/0xA5）统一归为 alt
+            if data.vkCode == 0xFF and data.scanCode == 0x78:
+                key_name = 'fn'
+            elif data.vkCode in (0x12, 0xA4, 0xA5):
+                key_name = 'alt'
+            else:
+                key_name = KeyMapper.vk_to_name(data.vkCode)
 
             # 防自捕获检查
             if self._check_emulating(key_name, msg):
@@ -112,20 +121,29 @@ class ShortcutManager:
 
             # 查找匹配的快捷键
             if key_name not in self.tasks:
+                # 触发键按住期间按下了其他键：视为组合键操作（Alt+Tab、Fn+音量等），取消录音
+                if msg in KEY_DOWN_MESSAGES:
+                    self._cancel_held_shortcuts(key_name)
                 return True
 
             task = self.tasks[key_name]
 
-            # 记录按键来源，便于排查误触发（注入事件 vs 物理按键）
-            if msg in KEY_DOWN_MESSAGES:
+            # 记录按键来源，便于排查误触发（注入事件 vs 物理按键）；录音中的重复按下不刷屏
+            if msg in KEY_DOWN_MESSAGES and not task.is_recording:
                 flags = int(getattr(data, 'flags', 0))
                 logger.info(
                     f"[{key_name}] 按键按下: flags=0x{flags:02x} "
                     f"注入={bool(flags & 0x12)} scan={getattr(data, 'scanCode', -1)}"
                 )
 
-            # 带修饰键的组合（Alt+Tab、Ctrl+Tab、Win+Tab 等）不触发录音，完整交还系统
-            if msg in KEY_DOWN_MESSAGES and self._modifier_pressed():
+            # 组合键取消后，本次触发键的剩余事件全部放行，直到松开
+            if key_name == self._combo_blocked:
+                if msg in KEY_UP_MESSAGES:
+                    self._combo_blocked = None
+                return True
+
+            # 带其他修饰键的组合（对 Alt 触发键而言，Ctrl/Win 等）不触发录音
+            if msg in KEY_DOWN_MESSAGES and self._modifier_pressed(key_name):
                 self._combo_ignored.add(key_name)
                 return True
             if msg in KEY_UP_MESSAGES and key_name in self._combo_ignored:
@@ -240,17 +258,30 @@ class ShortcutManager:
         """清除恢复标志"""
         self._restoring_keys.discard(key)
 
+    # ========== 组合键处理 ==========
+
+    def _cancel_held_shortcuts(self, pressed_key: str) -> None:
+        """触发键按住期间出现其他按键时，取消录音并屏蔽本次触发键"""
+        for task in self.tasks.values():
+            if task.shortcut.type != 'keyboard':
+                continue
+            if task.shortcut.key != pressed_key and task.is_recording:
+                logger.info(f"[{task.shortcut.key}] 检测到组合键操作，取消本次录音")
+                self._combo_blocked = task.shortcut.key
+                task.cancel()
+
     # ========== 修饰键检测 ==========
 
     @staticmethod
-    def _modifier_pressed() -> bool:
-        """检测 Alt/Ctrl/Win 是否处于按下状态"""
+    def _modifier_pressed(trigger_key: str = '') -> bool:
+        """检测除触发键自身以外的修饰键（Alt/Ctrl/Win）是否按下"""
         try:
             user32 = ctypes.windll.user32
-            return any(
-                user32.GetAsyncKeyState(vk) & 0x8000
-                for vk in (0x12, 0x11, 0x5B, 0x5C)  # Alt, Ctrl, LWin, RWin
-            )
+            if trigger_key == 'alt':
+                vks = (0x11, 0x5B, 0x5C)  # Ctrl, LWin, RWin
+            else:
+                vks = (0x12, 0x11, 0x5B, 0x5C)  # Alt, Ctrl, LWin, RWin
+            return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in vks)
         except Exception:
             return False
 

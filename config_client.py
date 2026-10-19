@@ -17,7 +17,7 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'tab',     # 监听 Tab 键
+            'key': 'caps_lock',     # 监听 Caps Lock 键
             'type': 'keyboard',     # 是键盘快捷键
             'suppress': True,      # 阻塞按键（短按会补发）
             'hold_mode': True,      # 长按模式
