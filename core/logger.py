@@ -112,6 +112,15 @@ class Logger:
         )
         logger.addHandler(stream_handler)
 
+        # 3. 第三方库日志（pynput 监听线程的异常默认只写 stderr，
+        #    窗口化打包后 stderr 指向 devnull，必须接入文件日志才可见）
+        for ext_name in ('pynput',):
+            ext_logger = logging.getLogger(ext_name)
+            ext_logger.setLevel(file_log_level)
+            ext_logger.propagate = False
+            if not any(isinstance(h, TruncatingFileHandler) for h in ext_logger.handlers):
+                ext_logger.addHandler(file_handler)
+
         # 缓存日志记录器
         cls._loggers[name] = logger
 

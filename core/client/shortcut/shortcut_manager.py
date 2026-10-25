@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from core.client.app import CapsWriterClient
 
 
+# 无法读取 pynput 内部钩子状态时的占位
+_HOOK_UNKNOWN = object()
+
 
 class ShortcutManager:
     """
@@ -323,11 +326,7 @@ class ShortcutManager:
             if self.keyboard_listener and self.keyboard_listener.is_alive():
                 logger.debug("键盘监听器已在运行，跳过启动")
             else:
-                self.keyboard_listener = keyboard.Listener(
-                    win32_event_filter=self.create_keyboard_filter()
-                )
-                self.keyboard_listener.start()
-                logger.info("键盘监听器已启动")
+                self._start_keyboard_listener()
 
         if has_mouse:
             if self.mouse_listener and self.mouse_listener.is_alive():
@@ -345,6 +344,63 @@ class ShortcutManager:
                 mode = "长按" if shortcut.hold_mode else "单击"
                 toggle = "可恢复" if shortcut.is_toggle_key() else "普通键"
                 logger.info(f"  [{shortcut.key}] {mode}模式, 阻塞:{shortcut.suppress}, {toggle}")
+
+    # ========== 监听器自检 ==========
+
+    def _start_keyboard_listener(self) -> None:
+        """启动键盘监听器，并确认钩子真正安装成功（失败最多重试 3 次）"""
+        for attempt in range(1, 4):
+            listener = keyboard.Listener(
+                win32_event_filter=self.create_keyboard_filter()
+            )
+            listener.start()
+
+            # start() 是异步的：等监听线程完成 SetWindowsHookEx
+            time.sleep(0.5)
+
+            if not listener.is_alive():
+                logger.warning(
+                    f"键盘监听器线程已退出（第 {attempt} 次启动）: "
+                    f"{self._listener_error(listener)}"
+                )
+                continue
+
+            handle = self._listener_hook_handle(listener)
+            if handle is None:
+                logger.warning(f"键盘钩子安装失败（第 {attempt} 次启动）")
+                listener.stop()
+                continue
+
+            self.keyboard_listener = listener
+            if handle is _HOOK_UNKNOWN:
+                logger.info("键盘监听器已启动（无法确认钩子句柄）")
+            else:
+                logger.info(f"键盘监听器已启动（钩子句柄 0x{handle:X}）")
+            return
+
+        logger.error("键盘监听器连续 3 次启动失败，语音输入快捷键不可用")
+
+    @staticmethod
+    def _listener_hook_handle(listener):
+        """读取 pynput 底层钩子句柄，确认没有静默安装失败"""
+        try:
+            from pynput._util.win32 import SystemHook
+            thread = getattr(listener, '_thread', None)
+            hook = SystemHook._HOOKS.get(thread.ident if thread else None)
+            if hook is None:
+                return _HOOK_UNKNOWN
+            return hook._hook or None
+        except Exception:
+            return _HOOK_UNKNOWN
+
+    @staticmethod
+    def _listener_error(listener) -> str:
+        """取出监听器线程留下的异常（pynput 平时把它吞在队列里）"""
+        try:
+            listener.join(0)
+        except Exception as e:
+            return f"{type(e).__name__}: {e}"
+        return "线程已退出但无异常记录"
 
     def stop(self) -> None:
         """停止所有监听器和清理资源"""
