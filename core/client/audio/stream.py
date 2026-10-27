@@ -79,10 +79,11 @@ class AudioStreamManager:
         if not self.state.recording:
             return
 
-        # 首块数据到达：设备已就绪，从「准备中」切入「录音中」
+        # 首块数据到达：设备已就绪，提示窗若已显示则从「准备中」切入「录音中」
         if not self._first_chunk_notified:
             self._first_chunk_notified = True
-            HintWindow.show_recording()
+            if HintWindow.visible:
+                HintWindow.show_recording()
 
         # 实时频谱（用于录音状态悬浮提示窗）
         try:
@@ -153,6 +154,11 @@ class AudioStreamManager:
 
         self._device_probed = True
         return None
+
+    @property
+    def receiving(self) -> bool:
+        """本次录音是否已收到音频数据（设备已就绪）"""
+        return self._first_chunk_notified
 
     def open(self) -> Optional[sd.InputStream]:
         """按需打开音频流（按住录音时调用）"""

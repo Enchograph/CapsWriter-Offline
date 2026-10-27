@@ -15,6 +15,7 @@
 ### 1. 识别全链路 (Recognition Flow)
 - **采集**: Client 监听快捷键（默认 CapsLock 和 X2）。按下就开始收集录音chunk，短于阈值（全局 **0.3s**，CapsLock 为 **0.5s**）的按键视为短按，取消录音并补发原按键（CapsLock 仍正常切换大小写）；超过阈值则触发识别，**实时流式**通过 WebSocket 发送。
 - **钩子线程约束**: 键盘钩子回调里只做状态标记，音频流的开关是百毫秒级阻塞操作，必须交给各快捷键任务的串行执行器（`ThreadPoolExecutor(max_workers=1)`），否则会把短按量成几百毫秒。
+- **提示窗时机**: 录音提示窗在按住达到阈值后才显示，短按不会在屏幕上闪现；音频回调只在提示窗已显示时负责切到「录音中」。
 - **切片 (Slicing)**: Client 配置 `mic_seg_duration` (60s) 和 `mic_seg_overlap` (4s)。Server 仅基于时间切片，**禁用 VAD** 以保留完整上下文。
 - **Server 处理**:
     - **双重结果**: 同时计算 `text` (简单文本拼接, Robust) 和 `text_accu` (基于 Token 时间戳去重, Precision)。

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import Event, Timer
 from typing import TYPE_CHECKING, Optional
 
 from . import logger
@@ -61,6 +61,8 @@ class ShortcutTask:
             thread_name_prefix=f'shortcut-{shortcut.key}',
         )
         self._launch_future = None
+        # 长按阈值到达后显示提示窗的定时器
+        self._hint_timer: Optional[Timer] = None
 
         # hold_mode 状态跟踪
         self.pressed: bool = False
@@ -107,9 +109,8 @@ class ShortcutTask:
         if self._cancelled:
             return
 
-        # 音频流按需打开，首块数据到达后切入「录音中」
-        HintWindow.show_preparing()
-        self._status.start()
+        # 提示窗等按住超过长按阈值再显示，短按不在屏幕上闪现
+        self._start_hint_timer()
 
         self.app.stream.open()
 
@@ -132,6 +133,30 @@ class ShortcutTask:
             self.app.loop,
         )
 
+    def _start_hint_timer(self) -> None:
+        """按住达到长按阈值后才显示提示窗"""
+        timer = Timer(self.threshold, self._show_hint)
+        timer.daemon = True
+        self._hint_timer = timer
+        timer.start()
+
+    def _cancel_hint_timer(self) -> None:
+        """取消尚未触发的提示窗定时器"""
+        if self._hint_timer is not None:
+            self._hint_timer.cancel()
+            self._hint_timer = None
+
+    def _show_hint(self) -> None:
+        """阈值时刻显示提示窗：已收到音频则直接「录音中」，否则先「准备中」"""
+        if not self.is_recording or self._cancelled:
+            return
+
+        if self.app.stream.receiving:
+            HintWindow.show_recording()
+        else:
+            HintWindow.show_preparing()
+        self._status.start()
+
     def cancel(self) -> None:
         """取消录音任务（时间过短，钩子线程调用）"""
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
@@ -140,6 +165,7 @@ class ShortcutTask:
         self._cancelled = True
 
         # 提示窗只是队列投递，直接在钩子线程收起，避免短按时闪现
+        self._cancel_hint_timer()
         HintWindow.hide()
 
         # 还没开始打开音频流的话直接取消，不必白开一次设备
@@ -169,6 +195,7 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
 
         self.is_recording = False
+        self._cancel_hint_timer()
 
         self._exec.submit(self._finish_stream)
 

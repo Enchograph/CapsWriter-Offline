@@ -229,6 +229,9 @@ class HintWindow:
     _thread: _HintUIThread | None = None
     _lock = threading.Lock()
 
+    #: 提示窗当前是否处于显示状态（音频回调据此判断要不要切成「录音中」）
+    visible = False
+
     @classmethod
     def _ensure_started(cls) -> _HintUIThread | None:
         if not getattr(Config, 'hint_ui_enabled', True):
@@ -243,18 +246,21 @@ class HintWindow:
     def show_preparing(cls) -> None:
         t = cls._ensure_started()
         if t:
+            cls.visible = True
             t.commands.put('prep')
 
     @classmethod
     def show_recording(cls) -> None:
         t = cls._ensure_started()
         if t:
+            cls.visible = True
             t.commands.put('rec')
 
     @classmethod
     def show_processing(cls) -> None:
         t = cls._ensure_started()
         if t:
+            cls.visible = True
             t.commands.put('proc')
 
     @classmethod
@@ -265,6 +271,7 @@ class HintWindow:
 
     @classmethod
     def hide(cls) -> None:
+        cls.visible = False
         t = cls._thread
         if t:
             t.commands.put('hide')
