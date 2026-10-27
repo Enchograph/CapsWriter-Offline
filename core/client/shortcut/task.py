@@ -8,6 +8,7 @@
 from __future__ import annotations
 import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import TYPE_CHECKING, Optional
 
@@ -48,6 +49,19 @@ class ShortcutTask:
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
 
+        # 按键按下时刻（单调时钟，钩子线程写入），用于不受钩子阻塞影响的时长判定
+        self.pressed_at: float = 0.0
+
+        # 本次按下是否已被判定为短按
+        self._cancelled = False
+
+        # 串行执行器：开关音频流是百毫秒级阻塞操作，必须离开键盘钩子线程
+        self._exec = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f'shortcut-{shortcut.key}',
+        )
+        self._launch_future = None
+
         # hold_mode 状态跟踪
         self.pressed: bool = False
         self.released: bool = True
@@ -72,26 +86,44 @@ class ShortcutTask:
         return self._recorder_class(self.app)
 
     def launch(self) -> None:
-        """启动录音任务"""
+        """
+        启动录音任务（键盘钩子线程调用，只做轻量状态变更）
+
+        打开音频流耗时 250ms 以上，若在钩子线程里同步执行，会阻塞后续的
+        按键事件处理，把短按的时长量成几百毫秒。阻塞部分交给执行器。
+        """
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
 
         # 记录开始时间
         self.recording_start_time = time.time()
+        self.pressed_at = time.perf_counter()
         self.is_recording = True
+        self._cancelled = False
 
-        # 将开始标志放入队列
+        self._launch_future = self._exec.submit(self._launch_stream)
+
+    def _launch_stream(self) -> None:
+        """打开音频流并启动识别协程（工作线程执行）"""
+        if self._cancelled:
+            return
+
+        # 音频流按需打开，首块数据到达后切入「录音中」
+        HintWindow.show_preparing()
+        self._status.start()
+
+        self.app.stream.open()
+
+        # 打开期间被判为短按：本次不录音，收尾后退出
+        if self._cancelled:
+            self._close_stream()
+            return
+
+        # 确认要录音后才开始收数据并投递开始标志，避免短按在队列里留下孤儿消息
+        self.state.start_recording(self.recording_start_time)
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({'type': 'begin', 'time': self.recording_start_time, 'data': None}),
             self.app.loop
         )
-
-        # 更新录音状态；音频流按需打开，首块数据到达后切入「录音中」
-        self.state.start_recording(self.recording_start_time)
-        HintWindow.show_preparing()
-        self.app.stream.open()
-
-        # 打印动画：正在录音
-        self._status.start()
 
         # 启动识别任务
         recorder = self._get_recorder()
@@ -101,27 +133,51 @@ class ShortcutTask:
         )
 
     def cancel(self) -> None:
-        """取消录音任务（时间过短）"""
+        """取消录音任务（时间过短，钩子线程调用）"""
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
 
         self.is_recording = False
+        self._cancelled = True
+
+        # 提示窗只是队列投递，直接在钩子线程收起，避免短按时闪现
+        HintWindow.hide()
+
+        # 还没开始打开音频流的话直接取消，不必白开一次设备
+        if self._launch_future is not None:
+            self._launch_future.cancel()
+            self._launch_future = None
+
+        self._exec.submit(self._cancel_stream)
+
+    def _cancel_stream(self) -> None:
+        """关闭音频流并清理本次录音（工作线程执行）"""
+        self._close_stream()
+
+        if self.task is not None:
+            self.task.cancel()
+            self.task = None
+
+    def _close_stream(self) -> None:
+        """停止录音状态与提示，再关闭音频流"""
         self.state.stop_recording()
-        self.app.stream.close()
         HintWindow.hide()
         self._status.stop()
-
-        self.task.cancel()
-        self.task = None
+        self.app.stream.close()
 
     def finish(self) -> None:
-        """完成录音任务"""
+        """完成录音任务（钩子线程调用，只做轻量状态变更）"""
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
 
         self.is_recording = False
+
+        self._exec.submit(self._finish_stream)
+
+    def _finish_stream(self) -> None:
+        """收尾本次录音并通知识别结束（工作线程执行）"""
         self.state.stop_recording()
-        self.app.stream.close()
         HintWindow.show_processing()
         self._status.stop()
+        self.app.stream.close()
 
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({
@@ -136,6 +192,12 @@ class ShortcutTask:
         # 阻塞模式下按键不会发送到系统，状态不会改变，不需要恢复
         if self.shortcut.is_toggle_key() and not self.shortcut.suppress:
             self._restore_key()
+
+    def shutdown(self) -> None:
+        """客户端退出时释放执行器"""
+        if self.is_recording:
+            self.cancel()
+        self._exec.shutdown(wait=False)
 
     def _restore_key(self) -> None:
         """恢复按键状态（防自捕获逻辑由 ShortcutManager 处理）"""

@@ -61,8 +61,10 @@ class ShortcutEventHandler:
         if not task.is_recording:
             return
 
-        duration = time.time() - task.recording_start_time
-        logger.debug(f"[{key_name}] 松开，持续时间: {duration:.2f}s")
+        # 用钩子线程记录的按下时刻计算时长：打开音频流等阻塞操作已移出钩子，
+        # 但事件本身仍可能被延迟处理，不能拿处理时刻当松开时刻
+        duration = time.perf_counter() - task.pressed_at
+        logger.debug(f"[{key_name}] 松开，持续时间: {duration:.3f}s")
 
         if duration < task.threshold:
             self._handle_short_press(key_name, task)
@@ -71,14 +73,12 @@ class ShortcutEventHandler:
 
     def _handle_short_press(self, key_name, task) -> None:
         """处理短按情况"""
-        cancel_start = time.perf_counter()
-        task.cancel()
-        cancel_time = (time.perf_counter() - cancel_start) * 1000
-        logger.debug(f"[{key_name}] task.cancel() 耗时: {cancel_time:.2f}ms")
-
+        # 先补发按键，让大小写切换等原生行为立即生效；关闭音频流等收尾交给任务执行器
         if task.shortcut.suppress:
-            logger.debug(f"[{key_name}] 安排异步补发按键")
-            self.pool.submit(self.emulator.emulate_key, key_name)
+            logger.debug(f"[{key_name}] 补发按键")
+            self.emulator.emulate_key(key_name)
+
+        task.cancel()
 
     def _count_down(self, task) -> None:
         """倒计时（单击模式）"""

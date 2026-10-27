@@ -216,14 +216,14 @@ class ShortcutManager:
         if not task.is_recording:
             return
 
-        duration = time.time() - task.recording_start_time
+        duration = time.perf_counter() - task.pressed_at
         logger.debug(f"[{button_name}] 松开按键，持续时间: {duration:.3f}s")
 
         if duration < task.threshold:
-            task.cancel()
             if task.shortcut.suppress:
-                logger.debug(f"[{button_name}] 安排异步补发鼠标按键")
-                self._pool.submit(self._emulator.emulate_mouse_click, button_name)
+                logger.debug(f"[{button_name}] 补发鼠标按键")
+                self._emulator.emulate_mouse_click(button_name)
+            task.cancel()
         else:
             task.finish()
 
@@ -422,10 +422,9 @@ class ShortcutManager:
             finally:
                 self.mouse_listener = None
 
-        # 取消所有任务
+        # 取消所有任务并释放各自的执行器
         for task in self.tasks.values():
-            if task.is_recording:
-                task.cancel()
+            task.shutdown()
 
         # 关闭线程池
         self._pool.shutdown(wait=False)

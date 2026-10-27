@@ -109,6 +109,10 @@ class AudioRecorder:
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
+                    # begin 未到就收到的数据块（打开音频流瞬间的极早期数据）直接丢弃
+                    if self._start_time <= 0:
+                        continue
+
                     # 在阈值之前积攒音频数据
                     if task['time'] - self._start_time < Config.threshold:
                         self._cache.append(task['data'])

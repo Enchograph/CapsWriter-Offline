@@ -21,6 +21,7 @@ class ClientConfig:
             'type': 'keyboard',     # 是键盘快捷键
             'suppress': True,      # 阻塞按键（短按会补发）
             'hold_mode': True,      # 长按模式
+            'threshold': 0.5,       # 短按/长按的分界（秒）：短按仍切换大小写
             'enabled': True         # 启用此快捷键
         },
         {
@@ -97,10 +98,11 @@ r"""
   type       - 输入类型：'keyboard'（键盘）或 'mouse'（鼠标）
   suppress   - 是否阻塞按键（True=阻塞，False=不阻塞）
   hold_mode  - 长按模式（True=按下录音松开停止，False=单击开始再次单击停止）
+  threshold  - 短按/长按分界（秒），不写则使用上方全局 threshold
   enabled    - 是否启用此快捷键
 
 阻塞模式说明：
-  - 阻塞模式  ：长按录音识别，短按（<0.3秒）则自动补发按键，不影响单击功能
+  - 阻塞模式  ：长按录音识别，短按（短于 threshold）则自动补发按键，不影响单击功能
   - 非阻塞模式：对于 CapsLock/NumLock/ScrollLock 这类切换键，松开时会自动补发，以恢复按键状态
 
 可用按键名称：
