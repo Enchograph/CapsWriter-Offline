@@ -57,6 +57,7 @@ class _HintUI:
         self._peaks = [-40.0] * _BARS
         self._window = None
         self._area = None
+        self._scale = 1.0
 
     # ---------- GTK 启动 ----------
 
@@ -87,19 +88,29 @@ class _HintUI:
     def _on_activate(self, app) -> None:
         from gi.repository import Gtk, Gdk, GLib, Gtk4LayerShell as LS
 
+        display = Gdk.Display.get_default()
+        monitors = display.get_monitors()
+        monitor = monitors.get_item(0) if monitors.get_n_items() else None
+        # Windows 版按物理像素布局（220x72），这里按显示器缩放换算成逻辑尺寸
+        self._scale = monitor.get_scale() if monitor is not None else 1.0
+        if not self._scale:
+            self._scale = 1.0
+        logical_w = max(1, round(_W / self._scale))
+        logical_h = max(1, round(_H / self._scale))
+
         window = Gtk.Window()
-        window.set_default_size(_W, _H)
+        window.set_default_size(logical_w, logical_h)
         window.set_decorated(False)
         window.set_resizable(False)
 
         css = Gtk.CssProvider()
         css.load_from_string('window { background-color: transparent; }')
         Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         area = Gtk.DrawingArea()
-        area.set_content_width(_W)
-        area.set_content_height(_H)
+        area.set_content_width(logical_w)
+        area.set_content_height(logical_h)
         area.set_draw_func(self._draw)
         window.set_child(area)
 
@@ -109,15 +120,12 @@ class _HintUI:
         LS.set_keyboard_mode(window, LS.KeyboardMode.NONE)
         LS.set_anchor(window, LS.Edge.BOTTOM, True)
         LS.set_anchor(window, LS.Edge.LEFT, True)
-        LS.set_margin(window, LS.Edge.BOTTOM, 72)
+        LS.set_margin(window, LS.Edge.BOTTOM, round(72 / self._scale))
 
-        display = Gdk.Display.get_default()
-        monitors = display.get_monitors()
-        monitor = monitors.get_item(0) if monitors.get_n_items() else None
         if monitor is not None:
             geo = monitor.get_geometry()
             LS.set_monitor(window, monitor)
-            LS.set_margin(window, LS.Edge.LEFT, max(0, (geo.width - _W) // 2))
+            LS.set_margin(window, LS.Edge.LEFT, max(0, (geo.width - logical_w) // 2))
 
         self._window = window
         self._area = area
@@ -203,6 +211,9 @@ class _HintUI:
     def _draw(self, area, cr, width: int, height: int) -> None:
         if not self._visible:
             return
+
+        # 用物理像素坐标系绘制，与 Windows 版 1:1
+        cr.scale(1 / self._scale, 1 / self._scale)
 
         r = (_H - 2) / 2
         x1, y1, x2, y2 = 1, 1, _W - 1, _H - 1
