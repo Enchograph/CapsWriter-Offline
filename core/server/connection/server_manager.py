@@ -31,6 +31,8 @@ class SocketManager:
         import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
+                # 允许复用 TIME_WAIT 留下的地址，避免重启时误判端口被占用
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind((Config.addr, int(Config.port)))
                 return True
             except socket.error:

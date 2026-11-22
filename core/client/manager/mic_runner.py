@@ -2,6 +2,7 @@
 import asyncio
 from . import logger
 from ..ui import TipsDisplay
+from ..ui.hint_window import HintWindow
 from config_client import ClientConfig as Config, __version__
 
 
@@ -32,6 +33,7 @@ class MicRunner:
 
         # 2. UI 提示
         TipsDisplay.show_mic_tips()
+        HintWindow.preheat()
 
         # 3. 开启运行组件 (音频流、快捷键监听)
         self.app.stream.start()
@@ -43,7 +45,8 @@ class MicRunner:
 
         # 5. 开启后台服务 (热词、LLM)
         self.app.hotword.start()
-        self.app.llm.start()
+        if self.app.llm:
+            self.app.llm.start()
 
     async def run(self):
         """麦克风模式主入口"""

@@ -1,0 +1,20 @@
+#!/bin/sh
+# evsieve hook：把 CapsLock 按下/松开转给客户端
+# 客户端不在运行时，松开时补发一次原生 CapsLock（保证大小写仍可切换）
+
+pidfile="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/capswriter/client.pid"
+
+case "$1" in
+    down)
+        if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+            kill -USR1 "$(cat "$pidfile")"
+        fi
+        ;;
+    up)
+        if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+            kill -USR2 "$(cat "$pidfile")"
+        else
+            wtype -k Caps_Lock 2>/dev/null
+        fi
+        ;;
+esac

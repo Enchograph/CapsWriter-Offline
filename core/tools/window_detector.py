@@ -126,6 +126,14 @@ def _get_macos_window_info() -> dict:
 
 def _get_linux_window_info() -> dict:
     """Linux 平台窗口检测"""
+    import os
+
+    # Wayland 会话：通过 niri IPC 获取焦点窗口
+    if os.environ.get('WAYLAND_DISPLAY'):
+        info = _get_niri_window_info()
+        if info:
+            return info
+
     try:
         import subprocess
 
@@ -150,6 +158,44 @@ def _get_linux_window_info() -> dict:
         pass
 
     return {}
+
+
+def _get_niri_window_info() -> dict:
+    """niri 合成器：通过 IPC 获取焦点窗口信息"""
+    try:
+        import json
+        import subprocess
+
+        result = subprocess.run(
+            ['niri', 'msg', '-j', 'focused-window'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return {}
+        window = json.loads(result.stdout)
+        if not window:
+            return {}
+
+        app_id = window.get('app_id') or ''
+        process_name = app_id
+        pid = window.get('pid')
+        if pid:
+            try:
+                import psutil
+                process_name = psutil.Process(pid).name()
+            except Exception:
+                pass
+
+        return {
+            'title': window.get('title') or '',
+            'class_name': app_id,
+            'process_name': process_name,
+            'app_name': app_id,
+        }
+    except Exception:
+        return {}
 
 
 def _guess_app_name(title: str, class_name: str, process_name: str) -> str:

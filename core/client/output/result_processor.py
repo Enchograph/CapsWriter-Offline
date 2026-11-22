@@ -8,8 +8,15 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 import time
 from typing import TYPE_CHECKING, Optional
+
+_IS_WINDOWS = sys.platform == 'win32'
+
+if _IS_WINDOWS:
+    import keyboard
 
 from config_client import ClientConfig as Config
 from core.client.state import console
@@ -17,7 +24,6 @@ from core.protocol import RecognitionMessage
 
 from core.client.output.text_output import TextOutput
 from core.tools.window_detector import get_active_window_info
-import keyboard
 from . import logger
 
 from core.client.udp.udp_broadcaster import broadcast_output_udp
@@ -46,7 +52,10 @@ def _estimate_tokens(text: str) -> int:
 async def _auto_enter(delay: float) -> None:
     """延迟发送回车键"""
     await asyncio.sleep(delay)
-    keyboard.press_and_release('enter')
+    if _IS_WINDOWS:
+        keyboard.press_and_release('enter')
+    else:
+        subprocess.run(['wtype', '-k', 'Return'], timeout=2, check=False)
     logger.debug(f"自动回车已发送 (延迟 {delay}s)")
 
 

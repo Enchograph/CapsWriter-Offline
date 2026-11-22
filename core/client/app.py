@@ -29,7 +29,10 @@ from .shortcut.shortcut_config import Shortcut
 from .udp.udp_control import UDPController
 
 from .hotword.manager import HotwordManager
-from .llm.llm_handler import LLMHandler
+if Config.llm_enabled:
+    from .llm.llm_handler import LLMHandler
+else:
+    LLMHandler = None
 from .output.text_output import TextOutput
 from .diary.diary_writer import DiaryWriter
 from core.tools.empty_working_set import empty_current_working_set
@@ -63,7 +66,7 @@ class CapsWriterClient:
         )
 
         # 4. 初始化 LLM 润色系统
-        self.llm = LLMHandler(app=self)
+        self.llm = LLMHandler(app=self) if LLMHandler else None
         
         self.output = TextOutput()
         self.diary = DiaryWriter(base_path=self.base_dir)
@@ -96,7 +99,8 @@ class CapsWriterClient:
 
         # 3. 关闭监控
         self.hotword.stop()
-        self.llm.stop()
+        if self.llm:
+            self.llm.stop()
 
         # 4. 关闭 WebSocket 连接
         self.ws.close_sync()

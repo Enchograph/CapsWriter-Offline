@@ -90,10 +90,9 @@ class Shortcut:
 
         注意：使用 RESTORABLE_KEYS 常量定义可恢复的按键
         """
-        from core.client.shortcut.key_mapper import RESTORABLE_KEYS
-
-        # 检查 key 是否包含可恢复的切换键
-        return any(toggle_key in self.key for toggle_key in RESTORABLE_KEYS)
+        # 检查 key 是否包含可恢复的切换键（与 key_mapper.RESTORABLE_KEYS 保持一致）
+        return any(toggle_key in self.key for toggle_key in
+                   ('caps_lock', 'num_lock', 'scroll_lock'))
 
 
 # 预定义常用快捷键配置

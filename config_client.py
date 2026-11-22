@@ -62,7 +62,7 @@ class ClientConfig:
     llm_enabled = False         # 是否启用 LLM 润色功能，需要配置 LLM/ 目录下的角色文件
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 
-    enable_tray = True          # 客户端默认启用托盘图标功能
+    enable_tray = False         # 客户端默认启用托盘图标功能
 
     hint_ui_enabled = True      # 是否启用录音状态的悬浮提示窗（录音中/识别中）
 

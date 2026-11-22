@@ -10,16 +10,26 @@
 """
 from __future__ import annotations
 import ctypes
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from pynput import keyboard, mouse
-
 from . import logger
-from core.client.shortcut.key_mapper import *
-from core.client.shortcut.key_mapper import KeyMapper
-from core.client.shortcut.emulator import ShortcutEmulator
+
+_IS_WINDOWS = sys.platform == 'win32'
+
+if _IS_WINDOWS:
+    from pynput import keyboard, mouse
+
+    from core.client.shortcut.key_mapper import *
+    from core.client.shortcut.key_mapper import KeyMapper
+    from core.client.shortcut.emulator import ShortcutEmulator
+else:
+    from .linux_backend import LinuxKeyEmulator as ShortcutEmulator, LinuxShortcutListener
+
+    keyboard = mouse = None
+
 from core.client.shortcut.event_handler import ShortcutEventHandler
 from core.client.shortcut.task import ShortcutTask
 
@@ -53,8 +63,9 @@ class ShortcutManager:
         self.shortcuts = shortcuts
 
         # 监听器
-        self.keyboard_listener: Optional[keyboard.Listener] = None
-        self.mouse_listener: Optional[mouse.Listener] = None
+        self.keyboard_listener = None
+        self.mouse_listener = None
+        self._linux_listener: Optional['LinuxShortcutListener'] = None
 
         # 快捷键任务映射（key -> ShortcutTask）
         self.tasks: Dict[str, ShortcutTask] = {}
@@ -239,12 +250,18 @@ class ShortcutManager:
         注意：标志清除只在按键释放事件中处理（_check_restoring），
         避免在线程中提前清除导致主线程收到重复消息。
         """
-        from pynput import keyboard
-
         self._restoring_keys.add(key)
 
+        if not _IS_WINDOWS:
+            def do_restore_linux():
+                time.sleep(0.05)
+                self._emulator.emulate_key(key)
+            self._pool.submit(do_restore_linux)
+            return
+
+        from pynput import keyboard
+
         def do_restore():
-            import time
             time.sleep(0.05)  # 延迟 50ms
             if key == 'caps_lock':
                 controller = keyboard.Controller()
@@ -319,6 +336,11 @@ class ShortcutManager:
 
     def start(self) -> None:
         """启动所有监听器"""
+        if not _IS_WINDOWS:
+            self._start_linux_listener()
+            self._log_shortcuts()
+            return
+
         has_keyboard = any(s.type == 'keyboard' for s in self.shortcuts if s.enabled)
         has_mouse = any(s.type == 'mouse' for s in self.shortcuts if s.enabled)
 
@@ -338,12 +360,31 @@ class ShortcutManager:
                 self.mouse_listener.start()
                 logger.info("鼠标监听器已启动")
 
-        # 打印所有启用的快捷键
+        self._log_shortcuts()
+
+    def _log_shortcuts(self) -> None:
+        """打印所有启用的快捷键"""
         for shortcut in self.shortcuts:
             if shortcut.enabled:
                 mode = "长按" if shortcut.hold_mode else "单击"
                 toggle = "可恢复" if shortcut.is_toggle_key() else "普通键"
                 logger.info(f"  [{shortcut.key}] {mode}模式, 阻塞:{shortcut.suppress}, {toggle}")
+
+    def _start_linux_listener(self) -> None:
+        """Linux：按键事件来自 evsieve 信号，目前只接 caps_lock"""
+        task = self.tasks.get('caps_lock')
+        if task is None:
+            logger.warning("未找到启用的 caps_lock 快捷键，按键监听不启动")
+            return
+
+        def on_down() -> None:
+            self._event_handler.handle_keydown('caps_lock', task)
+
+        def on_up() -> None:
+            self._event_handler.handle_keyup('caps_lock', task)
+
+        self._linux_listener = LinuxShortcutListener(on_down, on_up)
+        self._linux_listener.start()
 
     # ========== 监听器自检 ==========
 
@@ -404,6 +445,10 @@ class ShortcutManager:
 
     def stop(self) -> None:
         """停止所有监听器和清理资源"""
+        if self._linux_listener:
+            self._linux_listener.stop()
+            self._linux_listener = None
+
         if self.keyboard_listener:
             try:
                 self.keyboard_listener.stop()

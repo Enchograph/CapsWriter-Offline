@@ -9,12 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import subprocess
+import sys
 from typing import Optional
 import re
 
-import keyboard
-import pyclip
-from pynput import keyboard as pynput_keyboard
+_IS_WINDOWS = sys.platform == 'win32'
+
+if _IS_WINDOWS:
+    import keyboard
+    import pyclip
+    from pynput import keyboard as pynput_keyboard
 
 from config_client import ClientConfig as Config
 from core.tools.window_detector import get_active_window_info
@@ -87,10 +92,13 @@ class TextOutput:
         if not text:
             return
         
-        # 确定输出方式
+        # 确定输出方式；Wayland 下虚拟键盘无法可靠输入中文，只能走剪贴板粘贴
         if paste is None:
             paste = Config.paste
-        
+
+        if not _IS_WINDOWS:
+            paste = True
+
         if paste:
             await self._paste_text(text)
         else:
@@ -104,7 +112,11 @@ class TextOutput:
             text: 要粘贴的文本
         """
         logger.debug(f"使用粘贴方式输出文本，长度: {len(text)}")
-        
+
+        if not _IS_WINDOWS:
+            await self._paste_text_linux(text)
+            return
+
         # 保存剪贴板
         try:
             temp = pyclip.paste().decode('utf-8')
@@ -132,7 +144,42 @@ class TextOutput:
             await asyncio.sleep(0.1)
             pyclip.copy(temp)
             logger.debug("剪贴板已恢复")
-    
+
+    async def _paste_text_linux(self, text: str) -> None:
+        """Wayland：wl-copy 写入剪贴板，wtype 发送 Ctrl+V，随后恢复原剪贴板"""
+        original = b''
+        mime = 'text/plain;charset=utf-8'
+        if Config.restore_clip:
+            try:
+                types = subprocess.run(
+                    ['wl-paste', '--list-types'],
+                    capture_output=True, timeout=2).stdout.decode().split()
+                if types:
+                    mime = types[0]
+                    original = subprocess.run(
+                        ['wl-paste', '--no-newline', '--type', mime],
+                        capture_output=True, timeout=2).stdout
+            except Exception as e:
+                logger.debug(f"读取原剪贴板失败: {e}")
+
+        try:
+            subprocess.run(['wl-copy'], input=text.encode('utf-8'), timeout=2, check=False)
+            subprocess.run(['wtype', '-M', 'ctrl', '-k', 'v', '-m', 'ctrl'],
+                           timeout=2, check=False)
+            logger.debug("已发送粘贴命令 (Ctrl+V)")
+        except Exception as e:
+            logger.warning(f"粘贴输出失败: {e}")
+            return
+
+        if Config.restore_clip:
+            await asyncio.sleep(0.1)
+            try:
+                subprocess.run(['wl-copy', '--type', mime],
+                               input=original, timeout=2, check=False)
+                logger.debug("剪贴板已恢复")
+            except Exception as e:
+                logger.debug(f"恢复剪贴板失败: {e}")
+
     def _type_text(self, text: str) -> None:
         """
         通过模拟打字方式输出文本
