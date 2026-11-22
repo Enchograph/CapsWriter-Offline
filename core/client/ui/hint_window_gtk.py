@@ -120,7 +120,7 @@ class _HintUI:
         LS.set_keyboard_mode(window, LS.KeyboardMode.NONE)
         LS.set_anchor(window, LS.Edge.BOTTOM, True)
         LS.set_anchor(window, LS.Edge.LEFT, True)
-        LS.set_margin(window, LS.Edge.BOTTOM, round(72 / self._scale))
+        LS.set_margin(window, LS.Edge.BOTTOM, round(36 / self._scale))
 
         if monitor is not None:
             geo = monitor.get_geometry()
