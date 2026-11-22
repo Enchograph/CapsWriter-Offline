@@ -1,0 +1,13 @@
+[Unit]
+Description=CapsWriter CapsLock 抓键（evsieve）
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/localrepo/CapsWriter-Offline/scripts/evsieve-run.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

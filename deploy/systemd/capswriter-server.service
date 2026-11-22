@@ -1,0 +1,15 @@
+[Unit]
+Description=CapsWriter Offline 语音识别服务端
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/localrepo/CapsWriter-Offline
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=%h/localrepo/CapsWriter-Offline/.venv/bin/python start_server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

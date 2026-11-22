@@ -4,6 +4,20 @@
 
 pidfile="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/capswriter/client.pid"
 
+wayland_env() {
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        for sock in "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/wayland-*; do
+            case "$sock" in
+                *.lock) continue ;;
+            esac
+            [ -S "$sock" ] || continue
+            WAYLAND_DISPLAY=$(basename "$sock")
+            export WAYLAND_DISPLAY
+            break
+        done
+    fi
+}
+
 case "$1" in
     down)
         if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
@@ -14,6 +28,7 @@ case "$1" in
         if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
             kill -USR2 "$(cat "$pidfile")"
         else
+            wayland_env
             wtype -k Caps_Lock 2>/dev/null
         fi
         ;;
